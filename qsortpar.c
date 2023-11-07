@@ -14,10 +14,11 @@
 #define KILO (1024)
 #define MEGA (1024*1024)
 //#define MAX_ITEMS (64*MEGA)
-#define MAX_ITEMS (64*MEGA)
+#define MAX_ITEMS (128)
 #define swap(v, a, b) {unsigned tmp; tmp=v[a]; v[a]=v[b]; v[b]=tmp;}
 
 #define THREADS 4
+#define MINWORKSIZE 8
 
 static int *v;
 
@@ -52,7 +53,7 @@ init_array(void)
     int i;
     v = (int *) malloc(MAX_ITEMS*sizeof(int));
     for (i = 0; i < MAX_ITEMS; i++)
-        v[i] = rand();
+        v[i] = rand()%100;
 }
 
 static unsigned
@@ -86,46 +87,55 @@ partition(int *v, unsigned low, unsigned high, unsigned pivot_index)
     return high;
 }
 
-int DoTask(struct Job *task) {
+void AddJob(int* v, unsigned int low, unsigned int high)
+{
+    pthread_mutex_lock(&StackLock);
+        //reallocate jobstack if needed
+        if ((StackSize + 1) > StackSpace) {
+            StackSpace = ceil(((float)StackSpace) * 1.5f);
+            JobStack = realloc(JobStack, StackSpace * sizeof(struct Job));
+            fprintf(stderr, "Jobstack increased to %i\n", StackSpace);
+        }
+        JobStack[StackSize].v = v;
+        JobStack[StackSize].low = low;
+        JobStack[StackSize].high = high;
+        StackSize++;
+        pthread_mutex_unlock(&StackLock);
+        sem_post(&WaitingThreads);
+}
+
+int DoTask(int* v, unsigned int low, unsigned int high) 
+{
     unsigned int pivot_index;
 
     /* no need to sort a vector of zero or one element */
-        if (task->low == task->high)
-            return 1;
-        if (task->low > task->high)
-            return 0;    
-
-        /* select the pivot value */
-        pivot_index = (task->low+task->high)/2;
-
-        /* partition the vector */
-        pivot_index = partition(task->v, task->low, task->high, pivot_index);
-
-        /* sort the two sub arrays */
-        //the first sub array is appended as a new job
-        if (task->low < pivot_index) {
-            pthread_mutex_lock(&StackLock);
-            //reallocate jobstack if needed
-            if ((StackSize + 1) > StackSpace) {
-                StackSpace = ceil(((float)StackSpace) * 2.0f);
-                JobStack = realloc(JobStack, StackSpace * sizeof(struct Job));
-                fprintf(stderr, "Jobstack increased to %i\n", StackSpace);
-            }
-            JobStack[StackSize].v = task->v;
-            JobStack[StackSize].low = task->low;
-            JobStack[StackSize].high = pivot_index-1;
-            StackSize++;
-            pthread_mutex_unlock(&StackLock);
-            sem_post(&WaitingThreads);
-        }
-        //the current thread continues sorting the second subarray recursively
-        if (pivot_index < task->high) {
-            task->low = pivot_index+1;
-            //recursion and tally the progress
-            return DoTask(task) + 1;
-        }
-        //recursion endpoint
+    if (low == high)
         return 1;
+    if (low > high)
+        return 0;    
+
+    /* select the pivot value */
+    pivot_index = (low+high)/2;
+
+    /* partition the vector */
+    pivot_index = partition(v, low, high, pivot_index);
+
+    /* sort the two sub arrays */
+    //only if both sub arrays are of sufficient size will the thread split the job
+    if (((pivot_index-1 - low) >= MINWORKSIZE) && ((high - (pivot_index + 1)) >= MINWORKSIZE)) {
+        AddJob(v, low, pivot_index - 1);
+
+        return DoTask(v, pivot_index + 1, high) + 1;
+    }
+
+    int localProgress = 0;
+    if (low < pivot_index) {
+        localProgress += DoTask(v, low, pivot_index - 1);
+    }
+    if (pivot_index < high) {
+        localProgress += DoTask(v, pivot_index + 1, high);
+    }
+    return localProgress + 1;
 }
 
 void* ThreadWorker(void* arg)
@@ -152,7 +162,7 @@ void* ThreadWorker(void* arg)
         pthread_mutex_unlock(&StackLock);
 
         //The job is performed
-        localProgress = DoTask(&task);
+        localProgress = DoTask(task.v, task.low, task.high);
 
         //locks progress tally
         pthread_mutex_lock(&ProgressLock);
@@ -215,9 +225,9 @@ int
 main(int argc, char **argv)
 {
     init_array();
-    //print_array();
+    print_array();
     quick_sort(v, 0, MAX_ITEMS-1);
-    //print_array();
+    print_array();
 
     pthread_mutex_destroy(&StackLock);
     pthread_mutex_destroy(&ProgressLock);
