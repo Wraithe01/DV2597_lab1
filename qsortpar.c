@@ -14,7 +14,7 @@
 #define KILO (1024)
 #define MEGA (1024*1024)
 //#define MAX_ITEMS (64*MEGA)
-#define MAX_ITEMS 64*64*16
+#define MAX_ITEMS (64*MEGA)
 #define swap(v, a, b) {unsigned tmp; tmp=v[a]; v[a]=v[b]; v[b]=tmp;}
 
 #define THREADS 4
@@ -107,7 +107,7 @@ int DoTask(struct Job *task) {
             pthread_mutex_lock(&StackLock);
             //reallocate jobstack if needed
             if ((StackSize + 1) > StackSpace) {
-                StackSpace = ceil(((float)StackSpace) * 1.2f);
+                StackSpace = ceil(((float)StackSpace) * 2.0f);
                 JobStack = realloc(JobStack, StackSpace * sizeof(struct Job));
                 fprintf(stderr, "Jobstack increased to %i\n", StackSpace);
             }
@@ -185,7 +185,7 @@ quick_sort(int *v, unsigned low, unsigned high)
     sem_init(&WaitingThreads, 0, 0);
     pthread_t *threadpool;
     threadpool = malloc(THREADS * sizeof(pthread_t));
-    StackSpace = ((int)log2(MAX_ITEMS)) * THREADS * THREADS;
+    StackSpace = pow((int)log2(MAX_ITEMS), 2);
     printf("start space %i\n", StackSpace);
     JobStack = malloc(StackSpace * sizeof(struct Job));
     StackSize = 0;
