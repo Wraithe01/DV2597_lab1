@@ -206,7 +206,7 @@ quick_sort(int *v, unsigned low, unsigned high)
     for (int i = 0; i < THREADS; i++) {
         pthread_join(threadpool[i], NULL);
     }
-    printf("used stack %i\n");
+    printf("used stack %i\n", PeakStack);
     free(threadpool);
     free(JobStack);
 }
