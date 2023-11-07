@@ -14,7 +14,7 @@
 #define KILO (1024)
 #define MEGA (1024*1024)
 //#define MAX_ITEMS (64*MEGA)
-#define MAX_ITEMS 128
+#define MAX_ITEMS 64*64*16
 #define swap(v, a, b) {unsigned tmp; tmp=v[a]; v[a]=v[b]; v[b]=tmp;}
 
 #define THREADS 4
@@ -30,6 +30,7 @@ struct Job {
 struct Job* JobStack;
 unsigned int StackSize;
 unsigned int StackSpace;
+unsigned int PeakStack;
 pthread_mutex_t StackLock = PTHREAD_MUTEX_INITIALIZER;
 unsigned int Progress;
 unsigned int TotalWork;
@@ -106,7 +107,7 @@ int DoTask(struct Job *task) {
             pthread_mutex_lock(&StackLock);
             //reallocate jobstack if needed
             if ((StackSize + 1) > StackSpace) {
-                StackSpace = (int)(StackSpace * 2);
+                StackSpace = ceil(((float)StackSpace) * 1.2f);
                 JobStack = realloc(JobStack, StackSpace * sizeof(struct Job));
                 fprintf(stderr, "Jobstack increased to %i\n", StackSpace);
             }
@@ -142,6 +143,8 @@ void* ThreadWorker(void* arg)
             pthread_mutex_unlock(&StackLock);
             break;
         }
+        if (StackSize > PeakStack)
+            PeakStack = StackSize;
         //a pending job is consumed
         StackSize--;
         task = JobStack[StackSize];
@@ -182,9 +185,11 @@ quick_sort(int *v, unsigned low, unsigned high)
     sem_init(&WaitingThreads, 0, 0);
     pthread_t *threadpool;
     threadpool = malloc(THREADS * sizeof(pthread_t));
-    StackSpace = ((int)log2(MAX_ITEMS));
+    StackSpace = ((int)log2(MAX_ITEMS)) * THREADS * THREADS;
+    printf("start space %i\n", StackSpace);
     JobStack = malloc(StackSpace * sizeof(struct Job));
     StackSize = 0;
+    PeakStack = 0;
     Progress = 0;
     TotalWork = high + 1 - low;
 
@@ -201,7 +206,7 @@ quick_sort(int *v, unsigned low, unsigned high)
     for (int i = 0; i < THREADS; i++) {
         pthread_join(threadpool[i], NULL);
     }
-
+    printf("used stack %i\n");
     free(threadpool);
     free(JobStack);
 }
