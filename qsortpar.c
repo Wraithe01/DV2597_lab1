@@ -14,11 +14,11 @@
 #define KILO (1024)
 #define MEGA (1024*1024)
 //#define MAX_ITEMS (64*MEGA)
-#define MAX_ITEMS (128)
+#define MAX_ITEMS (64*MEGA)
 #define swap(v, a, b) {unsigned tmp; tmp=v[a]; v[a]=v[b]; v[b]=tmp;}
 
 #define THREADS 4
-#define MINWORKSIZE 8
+#define MINWORKSIZE 16
 
 static int *v;
 
@@ -53,7 +53,7 @@ init_array(void)
     int i;
     v = (int *) malloc(MAX_ITEMS*sizeof(int));
     for (i = 0; i < MAX_ITEMS; i++)
-        v[i] = rand()%100;
+        v[i] = rand();
 }
 
 static unsigned
@@ -90,18 +90,18 @@ partition(int *v, unsigned low, unsigned high, unsigned pivot_index)
 void AddJob(int* v, unsigned int low, unsigned int high)
 {
     pthread_mutex_lock(&StackLock);
-        //reallocate jobstack if needed
-        if ((StackSize + 1) > StackSpace) {
-            StackSpace = ceil(((float)StackSpace) * 1.5f);
-            JobStack = realloc(JobStack, StackSpace * sizeof(struct Job));
-            fprintf(stderr, "Jobstack increased to %i\n", StackSpace);
-        }
-        JobStack[StackSize].v = v;
-        JobStack[StackSize].low = low;
-        JobStack[StackSize].high = high;
-        StackSize++;
-        pthread_mutex_unlock(&StackLock);
-        sem_post(&WaitingThreads);
+    //reallocate jobstack if needed
+    if ((StackSize + 1) > StackSpace) {
+        StackSpace = ceil(((float)StackSpace) * 1.5f);
+        JobStack = realloc(JobStack, StackSpace * sizeof(struct Job));
+        fprintf(stderr, "Jobstack increased to %i\n", StackSpace);
+    }
+    JobStack[StackSize].v = v;
+    JobStack[StackSize].low = low;
+    JobStack[StackSize].high = high;
+    StackSize++;
+    pthread_mutex_unlock(&StackLock);
+    sem_post(&WaitingThreads);
 }
 
 int DoTask(int* v, unsigned int low, unsigned int high) 
@@ -195,7 +195,7 @@ quick_sort(int *v, unsigned low, unsigned high)
     sem_init(&WaitingThreads, 0, 0);
     pthread_t *threadpool;
     threadpool = malloc(THREADS * sizeof(pthread_t));
-    StackSpace = pow((int)log2(MAX_ITEMS), 2);
+    StackSpace = pow((int)log2(MAX_ITEMS), 1) * THREADS;
     printf("start space %i\n", StackSpace);
     JobStack = malloc(StackSpace * sizeof(struct Job));
     StackSize = 0;
@@ -225,9 +225,9 @@ int
 main(int argc, char **argv)
 {
     init_array();
-    print_array();
+    //print_array();
     quick_sort(v, 0, MAX_ITEMS-1);
-    print_array();
+    //print_array();
 
     pthread_mutex_destroy(&StackLock);
     pthread_mutex_destroy(&ProgressLock);
