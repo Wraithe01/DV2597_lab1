@@ -13,12 +13,12 @@
 
 #define KILO (1024)
 #define MEGA (1024*1024)
-//#define MAX_ITEMS (64*MEGA)
 #define MAX_ITEMS (64*MEGA)
 #define swap(v, a, b) {unsigned tmp; tmp=v[a]; v[a]=v[b]; v[b]=tmp;}
 
-#define THREADS 4
-#define MINWORKSIZE 16
+#define THREADS 8
+#define MINWORKSIZE 128
+#define STACKSTARTCOUNT 1600
 
 static int *v;
 
@@ -195,7 +195,8 @@ quick_sort(int *v, unsigned low, unsigned high)
     sem_init(&WaitingThreads, 0, 0);
     pthread_t *threadpool;
     threadpool = malloc(THREADS * sizeof(pthread_t));
-    StackSpace = pow((int)log2(MAX_ITEMS), 1) * THREADS;
+    //StackSpace = pow((int)log2(MAX_ITEMS), 2);
+    StackSpace = STACKSTARTCOUNT;
     printf("start space %i\n", StackSpace);
     JobStack = malloc(StackSpace * sizeof(struct Job));
     StackSize = 0;
