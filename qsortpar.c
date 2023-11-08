@@ -16,8 +16,8 @@
 #define MAX_ITEMS (64*MEGA)
 #define swap(v, a, b) {unsigned tmp; tmp=v[a]; v[a]=v[b]; v[b]=tmp;}
 
-#define THREADS 4
-#define MINWORKSIZE 64
+#define THREADS 16
+#define MINWORKSIZE 256
 
 static int *v;
 
