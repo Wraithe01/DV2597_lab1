@@ -16,8 +16,8 @@
 #define MAX_ITEMS (64*MEGA)
 #define swap(v, a, b) {unsigned tmp; tmp=v[a]; v[a]=v[b]; v[b]=tmp;}
 
-#define THREADS 8
-#define MINWORKSIZE 128
+#define THREADS 4
+#define MINWORKSIZE 8
 
 static int *v;
 
@@ -83,15 +83,13 @@ partition(int *v, unsigned low, unsigned high, unsigned pivot_index)
     return high;
 }
 
-int DoTask(int* v, unsigned int low, unsigned int high) 
+void DoTask(int* v, unsigned int low, unsigned int high) 
 {
     unsigned int pivot_index;
 
     /* no need to sort a vector of zero or one element */
-    if (low == high)
-        return 1;
-    if (low > high)
-        return 0;    
+    if (low >= high)
+        return;    
 
     /* select the pivot value */
     pivot_index = (low+high)/2;
@@ -101,37 +99,38 @@ int DoTask(int* v, unsigned int low, unsigned int high)
 
     /* sort the two sub arrays */
     //only if both sub arrays are of sufficient size will the thread split the job
-    if ((sem_trywait(&IdleThreads) == 0) && ((pivot_index-1 - low) >= MINWORKSIZE) && ((high - (pivot_index + 1)) >= MINWORKSIZE)) {
-        pthread_mutex_lock(&StackLock);
-        JobStack[StackSize].v = v;
-        JobStack[StackSize].low = low;
-        JobStack[StackSize].high = pivot_index - 1;
-        StackSize++;
-        pthread_mutex_unlock(&StackLock);
-        sem_post(&Recv);
+    if (((pivot_index-1 - low) >= MINWORKSIZE) && ((high - (pivot_index + 1)) >= MINWORKSIZE)) {
+        //Thread checks if there are idle threads to take on the work, otherwise the current thread performs it instead
+        if (sem_trywait(&IdleThreads) == 0) {
+            pthread_mutex_lock(&StackLock);
+            JobStack[StackSize].v = v;
+            JobStack[StackSize].low = low;
+            JobStack[StackSize].high = pivot_index - 1;
+            StackSize++;
+            pthread_mutex_unlock(&StackLock);
+            sem_post(&Recv);
 
-        return DoTask(v, pivot_index + 1, high) + 1;
+            DoTask(v, pivot_index + 1, high);
+            return;
+        }
     }
 
     int localProgress = 0;
     if (low < pivot_index) {
-        localProgress += DoTask(v, low, pivot_index - 1);
+        DoTask(v, low, pivot_index - 1);
     }
     if (pivot_index < high) {
-        localProgress += DoTask(v, pivot_index + 1, high);
+        DoTask(v, pivot_index + 1, high);
     }
-    return localProgress + 1;
 }
 
 void* ThreadWorker(void* arg)
 {
-    unsigned int localProgress = 0;
     struct Job task;
     int idle;
     while (1) {
         //thread waits until there is work to be done
         sem_wait(&Recv);
-
         //locks jobstack
         pthread_mutex_lock(&StackLock);
         //if there is no work in the stack the sort has concluded and threads will terminate
@@ -147,13 +146,14 @@ void* ThreadWorker(void* arg)
         pthread_mutex_unlock(&StackLock);
 
         //The job is performed
-        localProgress = DoTask(task.v, task.low, task.high);
+        DoTask(task.v, task.low, task.high);
 
         //tallies the idle threads
         sem_post(&IdleThreads);
 
         //if all threads are idle this thread will start the termination of all threads
         sem_getvalue(&IdleThreads, &idle);
+        //printf("idle threads: %i\n", idle);
         if (idle >= THREADS)
         {
             //by posting recv a waiting thread will become active, see the stack is empty, post recv for the next thread and then exits.
