@@ -7,9 +7,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
-#include <stdatomic.h>
 #include <semaphore.h>
 #include <math.h>
+#include <sys/time.h>
 
 #define KILO (1024)
 #define MEGA (1024*1024)
@@ -17,7 +17,7 @@
 #define swap(v, a, b) {unsigned tmp; tmp=v[a]; v[a]=v[b]; v[b]=tmp;}
 
 #define THREADS 4
-#define MINWORKSIZE 8
+#define MINWORKSIZE 64
 
 static int *v;
 
@@ -196,8 +196,16 @@ main(int argc, char **argv)
 {
     init_array();
     //print_array();
+    struct timeval start, end;
+    gettimeofday(&start, NULL);
     quick_sort(v, 0, MAX_ITEMS-1);
+    gettimeofday(&end, NULL);
     //print_array();
+
+    double timeTaken;
+    timeTaken = (end.tv_sec - start.tv_sec) * 1e6;
+    timeTaken = (timeTaken + (end.tv_usec - start.tv_usec)) * 1e-6;
+    printf("Sort time: %lf sec\n", timeTaken);
 
     pthread_mutex_destroy(&StackLock);
     sem_destroy(&IdleThreads);
