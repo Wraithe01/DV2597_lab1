@@ -18,7 +18,6 @@
 
 #define THREADS 8
 #define MINWORKSIZE 128
-#define STACKSTARTCOUNT 1600
 
 static int *v;
 
@@ -30,13 +29,8 @@ struct Job {
 
 struct Job* JobStack;
 unsigned int StackSize;
-unsigned int StackSpace;
-unsigned int PeakStack;
 pthread_mutex_t StackLock = PTHREAD_MUTEX_INITIALIZER;
-/*Idle threads is initilized as one less than the total threads.
-when a thread wish to start waiting for new work it is decremented.
-when a thread tries to aquire a ticket and fails, it may be the last active thread and all the work is potentially done.
-This thread will then try and */ 
+
 sem_t IdleThreads;
 sem_t Recv;
 
@@ -89,23 +83,6 @@ partition(int *v, unsigned low, unsigned high, unsigned pivot_index)
     return high;
 }
 
-void AddJob(int* v, unsigned int low, unsigned int high)
-{
-    pthread_mutex_lock(&StackLock);
-    //reallocate jobstack if needed
-    if ((StackSize + 1) > StackSpace) {
-        StackSpace = ceil(((float)StackSpace) * 1.5f);
-        JobStack = realloc(JobStack, StackSpace * sizeof(struct Job));
-        fprintf(stderr, "Jobstack increased to %i\n", StackSpace);
-    }
-    JobStack[StackSize].v = v;
-    JobStack[StackSize].low = low;
-    JobStack[StackSize].high = high;
-    StackSize++;
-    pthread_mutex_unlock(&StackLock);
-    sem_post(&WaitingThreads);
-}
-
 int DoTask(int* v, unsigned int low, unsigned int high) 
 {
     unsigned int pivot_index;
@@ -124,8 +101,14 @@ int DoTask(int* v, unsigned int low, unsigned int high)
 
     /* sort the two sub arrays */
     //only if both sub arrays are of sufficient size will the thread split the job
-    if (((pivot_index-1 - low) >= MINWORKSIZE) && ((high - (pivot_index + 1)) >= MINWORKSIZE)) {
-        AddJob(v, low, pivot_index - 1);
+    if ((sem_trywait(&IdleThreads) == 0) && ((pivot_index-1 - low) >= MINWORKSIZE) && ((high - (pivot_index + 1)) >= MINWORKSIZE)) {
+        pthread_mutex_lock(&StackLock);
+        JobStack[StackSize].v = v;
+        JobStack[StackSize].low = low;
+        JobStack[StackSize].high = pivot_index - 1;
+        StackSize++;
+        pthread_mutex_unlock(&StackLock);
+        sem_post(&Recv);
 
         return DoTask(v, pivot_index + 1, high) + 1;
     }
@@ -144,19 +127,19 @@ void* ThreadWorker(void* arg)
 {
     unsigned int localProgress = 0;
     struct Job task;
+    int idle;
     while (1) {
         //thread waits until there is work to be done
-        sem_wait(&WaitingThreads);
+        sem_wait(&Recv);
 
         //locks jobstack
         pthread_mutex_lock(&StackLock);
         //if there is no work in the stack the sort has concluded and threads will terminate
         if (StackSize <= 0) {
             pthread_mutex_unlock(&StackLock);
+            sem_post(&Recv);
             break;
         }
-        if (StackSize > PeakStack)
-            PeakStack = StackSize;
         //a pending job is consumed
         StackSize--;
         task = JobStack[StackSize];
@@ -166,27 +149,17 @@ void* ThreadWorker(void* arg)
         //The job is performed
         localProgress = DoTask(task.v, task.low, task.high);
 
-        //locks progress tally
-        pthread_mutex_lock(&ProgressLock);
-        //updates the number of items in correct positions
-        Progress += localProgress;
-        //if the work is complete this thread will wake the other threads so they may terminate
-        if (Progress >= TotalWork) {
-            if (StackSize != 0)
-            {
-                fprintf(stderr, "ERROR:Termination error remaining work %i\n", StackSize);
-            }
-            if (Progress > TotalWork)
-            {
-                fprintf(stderr, "ERROR:Termination error progress tally error. progress %i out of total %i\n", Progress, TotalWork);
-            }
-            for (int i = 0; i < THREADS - 1; i++) {
-                sem_post(&WaitingThreads);
-            }
-            pthread_mutex_unlock(&ProgressLock);
+        //tallies the idle threads
+        sem_post(&IdleThreads);
+
+        //if all threads are idle this thread will start the termination of all threads
+        sem_getvalue(&IdleThreads, &idle);
+        if (idle >= THREADS)
+        {
+            //by posting recv a waiting thread will become active, see the stack is empty, post recv for the next thread and then exits.
+            sem_post(&Recv);
             break;
         }
-        pthread_mutex_unlock(&ProgressLock);
     }
     pthread_exit(NULL);
 }
@@ -194,32 +167,26 @@ void* ThreadWorker(void* arg)
 static void
 quick_sort(int *v, unsigned low, unsigned high)
 {
-    sem_init(&WaitingThreads, 0, 0);
+    sem_init(&IdleThreads, 0, THREADS - 1);
+    sem_init(&Recv, 0, 1);
     pthread_t *threadpool;
     threadpool = malloc(THREADS * sizeof(pthread_t));
-    //StackSpace = pow((int)log2(MAX_ITEMS), 2);
-    StackSpace = STACKSTARTCOUNT;
-    printf("start space %i\n", StackSpace);
-    JobStack = malloc(StackSpace * sizeof(struct Job));
+    JobStack = malloc(THREADS * sizeof(struct Job));
     StackSize = 0;
-    PeakStack = 0;
-    Progress = 0;
-    TotalWork = high + 1 - low;
-
-    for (int i = 0; i < THREADS; i++) {
-        pthread_create(&(threadpool[i]), NULL, ThreadWorker, NULL);
-    }
 
     JobStack[StackSize].high = high;
     JobStack[StackSize].low = low;
     JobStack[StackSize].v = v;
     StackSize++;
-    sem_post(&WaitingThreads);
+
+    for (int i = 0; i < THREADS; i++) {
+        pthread_create(&(threadpool[i]), NULL, ThreadWorker, NULL);
+    }
 
     for (int i = 0; i < THREADS; i++) {
         pthread_join(threadpool[i], NULL);
     }
-    printf("used stack %i\n", PeakStack);
+
     free(threadpool);
     free(JobStack);
 }
@@ -233,6 +200,6 @@ main(int argc, char **argv)
     //print_array();
 
     pthread_mutex_destroy(&StackLock);
-    pthread_mutex_destroy(&ProgressLock);
-    sem_destroy(&WaitingThreads);
+    sem_destroy(&IdleThreads);
+    sem_destroy(&Recv);
 }
