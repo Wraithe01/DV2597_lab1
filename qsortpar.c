@@ -33,10 +33,12 @@ unsigned int StackSize;
 unsigned int StackSpace;
 unsigned int PeakStack;
 pthread_mutex_t StackLock = PTHREAD_MUTEX_INITIALIZER;
-unsigned int Progress;
-unsigned int TotalWork;
-pthread_mutex_t ProgressLock = PTHREAD_MUTEX_INITIALIZER;
-sem_t WaitingThreads ;
+/*Idle threads is initilized as one less than the total threads.
+when a thread wish to start waiting for new work it is decremented.
+when a thread tries to aquire a ticket and fails, it may be the last active thread and all the work is potentially done.
+This thread will then try and */ 
+sem_t IdleThreads;
+sem_t Recv;
 
 static void
 print_array(void)
