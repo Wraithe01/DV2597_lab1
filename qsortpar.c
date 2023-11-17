@@ -115,7 +115,6 @@ void DoTask(int* v, unsigned int low, unsigned int high)
         }
     }
 
-    int localProgress = 0;
     if (low < pivot_index) {
         DoTask(v, low, pivot_index - 1);
     }
