@@ -114,22 +114,22 @@ void* HybridBlock(void* input)
         pthread_cond_broadcast(&lineCond);
         pthread_mutex_unlock(&lineLock);
     }
-    for (uint32_t row = args->startRow; row < maxrows; ++row)
-    {
-        for (uint32_t col = row; col < maxcols; ++col)
-        {
-            // Normalise remaining values
-            double inversediv = normzValues[row];
-            for (; col < maxcols; ++col)
-            {
-                double finalval = mat[row][col];
-                for (uint32_t i = 0; i < row; ++i)
-                    finalval += elimValues[row][i] * mat[i][col];
-                mat[row][col] = finalval * inversediv;
-            }
-            y[row] *= inversediv;
-        }
-    }
+    // for (uint32_t row = args->startRow; row < maxrows; ++row)
+    // {
+    //     for (uint32_t col = row; col < maxcols; ++col)
+    //     {
+    //         // Normalise remaining values
+    //         double inversediv = normzValues[row];
+    //         for (; col < maxcols; ++col)
+    //         {
+    //             double finalval = mat[row][col];
+    //             for (uint32_t i = 0; i < row; ++i)
+    //                 finalval += elimValues[row][i] * mat[i][col];
+    //             mat[row][col] = finalval * inversediv;
+    //         }
+    //         y[row] *= inversediv;
+    //     }
+    // }
 
     // Column block is done with work
     pthread_mutex_lock(&linewLock);
@@ -159,8 +159,8 @@ void* EliminationBlock(void* input)
         for (uint32_t col = args->startCol; col < maxcols; ++col)
         {
             double val = mat[row][col];
-            for (uint32_t i = 0; i < row; ++i)
-                val += mat[i][col] * elimValues[row][i];
+            // for (uint32_t i = 0; i < row; ++i)
+            //     val += mat[i][col] * elimValues[row][i];
             elimValues[row][col] = val;
             mat[row][col]        = 0;
         }
@@ -196,8 +196,8 @@ void* NormalisationBlock(void* input)
         {
             // Eliminate
             double val = mat[row][col];
-            for (uint32_t i = 0; i < row; ++i)
-                val += mat[i][col] * elimValues[row][i];
+            // for (uint32_t i = 0; i < row; ++i)
+            //     val += mat[i][col] * elimValues[row][i];
 
             // Normalise
             mat[row][col] = val * inversediv;
