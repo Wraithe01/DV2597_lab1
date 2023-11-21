@@ -131,8 +131,6 @@ void* HybridBlock(void* input)
         }
     }
 
-
-
     // Column block is done with work
     pthread_mutex_lock(&linewLock);
     ++(lineWork[(int) (args->startCol / WORKLOAD)]);
@@ -161,8 +159,8 @@ void* EliminationBlock(void* input)
         for (uint32_t col = args->startCol; col < maxcols; ++col)
         {
             double val = mat[row][col];
-            /* for (uint32_t i = 0; i < row; ++i) */
-            /*     val += mat[i][col] * elimValues[row][i]; */
+            for (uint32_t i = 0; i < row; ++i)
+                val += mat[i][col] * elimValues[row][i];
             elimValues[row][col] = val;
             mat[row][col]        = 0;
         }
@@ -198,8 +196,8 @@ void* NormalisationBlock(void* input)
         {
             // Eliminate
             double val = mat[row][col];
-            /* for (uint32_t i = 0; i < row; ++i) */
-            /*     val += mat[i][col] * elimValues[row][i]; */
+            for (uint32_t i = 0; i < row; ++i)
+                val += mat[i][col] * elimValues[row][i];
 
             // Normalise
             mat[row][col] = val * inversediv;
