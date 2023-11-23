@@ -11,13 +11,10 @@
 #include <threads.h>
 #include <unistd.h>
 #include <semaphore.h>
+#include <time.h>
 
-#define MAT_SIZE 4096
+#define MAT_SIZE 2048
 #define THREAD_COUNT 16
-// Amount of bytes to work per row x column for each checkerboard slot which a single thread will
-// work with. This must be of the format of 2^x
-
-
 typedef double matrix[MAT_SIZE][MAT_SIZE];
 
 
@@ -30,6 +27,14 @@ matrix mat;         /* matrix A		        */
 double b[MAT_SIZE]; /* vector b             */
 double y[MAT_SIZE]; /* vector y             */
 
+#define COL_DONE 1
+#define COL_WIP 0
+uint32_t        colWork[MAT_SIZE];
+pthread_mutex_t colLock;
+pthread_cond_t  colCond;
+
+pthread_mutex_t workLock;
+int32_t         workCounter;
 
 void work(void);
 void Init_Matrix(void);
@@ -39,12 +44,30 @@ int  Read_Options(int, char**);
 
 int main(int argc, char** argv)
 {
-    int i, timestart, timeend, iter;
+    int    i, iter;
+    time_t timestart, timeend;
 
     Init_Default();           /* Init default values	*/
     Read_Options(argc, argv); /* Read arguments	*/
     Init_Matrix();            /* Init the matrix	*/
+    /* timestart = clock(); */
     work();
+    /* timeend = clock(); */
+    /* printf("Time taken: %8.8gs\n", ((double) (timeend - timestart)) / CLOCKS_PER_SEC); */
+    /* for (uint32_t j = 0; j < 5; ++j) */
+    /* { */
+    /*     for (uint32_t i = 0; i < 5; ++i) */
+    /*     { */
+    /*         printf("%8.8g\t", mat[j][i]); */
+    /*     } */
+    /*     printf("\n"); */
+    /* } */
+    /* printf("===="); */
+    /* for (uint32_t i = 0; i < 5; ++i) */
+    /* { */
+    /*     printf("%8.8g\t", b[i]); */
+    /* } */
+    /* printf("\n"); */
     if (PRINT == 1)
         Print_Matrix();
     return 0;
@@ -52,15 +75,87 @@ int main(int argc, char** argv)
 
 typedef struct ptargs
 {
-    //
+    uint16_t tid;
 } ptargs_s;
-void* GaussianElim(void* input)
+void GaussianElimination(uint32_t rowc)
 {
-    ptargs_s args = *(ptargs_s*) input;
+    pthread_mutex_lock(&colLock);
+    while (rowc != 0 && colWork[rowc - 1] < 1)
+        pthread_cond_wait(&colCond, &colLock);
+    pthread_mutex_unlock(&colLock);
+
+    // Normalise
+    double normzinverse = 1 / mat[rowc][rowc];
+    for (uint32_t j = rowc + 1; j < MAT_SIZE; ++j)
+        mat[rowc][j] *= normzinverse;
+    y[rowc]         = b[rowc] * normzinverse;
+    mat[rowc][rowc] = 1.0;
+
+    // Eliminate (rain)
+    for (uint32_t i = rowc + 1; i < MAT_SIZE; ++i)
+    {
+        for (uint32_t j = rowc + 1; j < MAT_SIZE; ++j)
+            mat[i][j] -= mat[i][rowc] * mat[rowc][j];
+        b[i] -= mat[i][rowc] * y[rowc];
+        mat[i][rowc] = 0.0;
+
+        pthread_mutex_lock(&colLock);
+        colWork[rowc]++;
+        pthread_cond_broadcast(&colCond);
+        pthread_mutex_unlock(&colLock);
+    }
+}
+void* ThreadWork(void* input)
+{
+    ptargs_s args  = *(ptargs_s*) input;
+    int32_t  jobid = args.tid;
+    while (jobid < MAT_SIZE)
+    {
+        GaussianElimination(jobid);
+        // Get new job
+        pthread_mutex_lock(&workLock);
+        jobid = workCounter++;
+        pthread_mutex_unlock(&workLock);
+    }
+
+    // Signal work is done to main thread
+    const union sigval retval = { .sival_int = args.tid };
+    sigqueue(getpid(), SIGRTMIN, retval);
     pthread_exit(NULL);
 }
+void work(void)
+{
+    // Init
+    pthread_t tpool[THREAD_COUNT];
+    ptargs_s  targs[THREAD_COUNT];
 
-void work(void) {}
+    siginfo_t data;
+    sigset_t  sig;
+    sigemptyset(&sig);
+    sigaddset(&sig, SIGRTMIN);
+    // Has to be blocking for sigwait to work
+    pthread_sigmask(SIG_BLOCK, &sig, NULL);
+
+    workCounter = THREAD_COUNT;
+    memset(colWork, COL_WIP, MAT_SIZE);
+    pthread_cond_init(&colCond, NULL);
+    pthread_mutex_init(&colLock, NULL);
+    pthread_mutex_init(&workLock, NULL);
+
+
+    // Create thread pool
+    for (uint16_t i = 0; i < THREAD_COUNT; ++i)
+    {
+        targs[i].tid = i;
+        pthread_create(&tpool[i], NULL, ThreadWork, &targs[i]);
+    }
+    // Collect threads
+    for (uint16_t i = 0; i < THREAD_COUNT; ++i)
+    {
+        sigwaitinfo(&sig, &data);
+        pthread_join(tpool[data.si_int], NULL);
+    }
+}
 
 void Init_Matrix()
 {
