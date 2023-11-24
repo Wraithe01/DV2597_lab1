@@ -89,7 +89,7 @@ typedef struct ptargs
 void GaussianElimination(uint32_t rowc)
 {
     pthread_mutex_lock(&colLock);
-    while (rowc != 0 && colWork[rowc - 1] < 1)
+    while (colWork[rowc] < rowc)
         pthread_cond_wait(&colCond, &colLock);
     pthread_mutex_unlock(&colLock);
 
@@ -103,13 +103,20 @@ void GaussianElimination(uint32_t rowc)
     // Eliminate (rain)
     for (uint32_t i = rowc + 1; i < MAT_SIZE; ++i)
     {
+        // Wait until past threads are all done with line
+        pthread_mutex_lock(&colLock);
+        while (colWork[i] < rowc)
+            pthread_cond_wait(&colCond, &colLock);
+        pthread_mutex_unlock(&colLock);
+
+
         for (uint32_t j = rowc + 1; j < MAT_SIZE; ++j)
             mat[i][j] -= mat[i][rowc] * mat[rowc][j];
         b[i] -= mat[i][rowc] * y[rowc];
         mat[i][rowc] = 0.0;
 
         pthread_mutex_lock(&colLock);
-        colWork[rowc]++;
+        colWork[i]++;
         pthread_cond_broadcast(&colCond);
         pthread_mutex_unlock(&colLock);
     }
