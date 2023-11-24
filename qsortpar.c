@@ -215,6 +215,19 @@ quick_sort(int *v, unsigned low, unsigned high)
     free(JobStack);
 }
 
+void Validate()
+{
+    for (int i = 1; i < MAX_ITEMS; i++)
+    {
+        if (v[i - 1] > v[i])
+        {
+            printf("Sort failed\n");
+            return;
+        }
+    }
+    printf("Sort Succeeded\n");
+}
+
 int
 main(int argc, char **argv)
 {
@@ -230,6 +243,8 @@ main(int argc, char **argv)
     timeTaken = (end.tv_sec - start.tv_sec) * 1e6;
     timeTaken = (timeTaken + (end.tv_usec - start.tv_usec)) * 1e-6;
     printf("Sort time: %lf sec\n", timeTaken);
+
+    Validate();
 
     pthread_mutex_destroy(&StackLock);
     sem_destroy(&IdleThreads);
