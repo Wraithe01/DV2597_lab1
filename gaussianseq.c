@@ -5,6 +5,7 @@
  ***************************************************************************/
 
 #include <stdio.h>
+#include <sys/time.h>
 
 #define MAX_SIZE 2048
 
@@ -32,12 +33,20 @@ int main(int argc, char** argv)
     Init_Default();           /* Init default values	*/
     Read_Options(argc, argv); /* Read arguments	*/
     Init_Matrix();            /* Init the matrix	*/
+    struct timeval start, end;
+    gettimeofday(&start, NULL);
     work();
-    for (int i = 0; i < 12; ++i)
-    {
-        printf("%8.8g ", b[i]);
-    }
-    printf("\n");
+    gettimeofday(&end, NULL);
+
+    double timeTaken;
+    timeTaken = (end.tv_sec - start.tv_sec) * 1e6;
+    timeTaken = (timeTaken + (end.tv_usec - start.tv_usec)) * 1e-6;
+    printf("Solve time: %lf sec\n", timeTaken);
+    // for (int i = 0; i < 12; ++i)
+    // {
+    //     printf("%8.8g ", b[i]);
+    // }
+    // printf("\n");
     if (PRINT == 1)
         Print_Matrix();
 }

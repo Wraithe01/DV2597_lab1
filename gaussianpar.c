@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include <semaphore.h>
 #include <time.h>
+#include <sys/time.h>
 
 #define MAT_SIZE 2048
 #define THREAD_COUNT 16
@@ -51,7 +52,15 @@ int main(int argc, char** argv)
     Read_Options(argc, argv); /* Read arguments	*/
     Init_Matrix();            /* Init the matrix	*/
     /* timestart = clock(); */
+    struct timeval start, end;
+    gettimeofday(&start, NULL);
     work();
+    gettimeofday(&end, NULL);
+
+    double timeTaken;
+    timeTaken = (end.tv_sec - start.tv_sec) * 1e6;
+    timeTaken = (timeTaken + (end.tv_usec - start.tv_usec)) * 1e-6;
+    printf("Solve time: %lf sec\n", timeTaken);
     /* timeend = clock(); */
     /* printf("Time taken: %8.8gs\n", ((double) (timeend - timestart)) / CLOCKS_PER_SEC); */
     /* for (uint32_t j = 0; j < 5; ++j) */
