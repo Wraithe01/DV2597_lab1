@@ -16,6 +16,7 @@
 
 #define MAT_SIZE 2048
 #define THREAD_COUNT 16
+#define LINES_PER_THREAD 8
 typedef double matrix[MAT_SIZE][MAT_SIZE];
 
 
@@ -28,14 +29,12 @@ matrix mat;         /* matrix A		        */
 double b[MAT_SIZE]; /* vector b             */
 double y[MAT_SIZE]; /* vector y             */
 
-#define COL_DONE 1
-#define COL_WIP 0
-uint32_t        colWork[MAT_SIZE];
-pthread_mutex_t colLock;
-pthread_cond_t  colCond;
+pthread_barrier_t comBarrier;
+pthread_barrier_t threadBarrier;
+pthread_mutex_t   lock;
 
-pthread_mutex_t workLock;
-int32_t         workCounter;
+uint32_t startLine;
+uint32_t currentLine;
 
 void work(void);
 void Init_Matrix(void);
@@ -51,7 +50,7 @@ int main(int argc, char** argv)
     Init_Default();           /* Init default values	*/
     Read_Options(argc, argv); /* Read arguments	*/
     Init_Matrix();            /* Init the matrix	*/
-    /* timestart = clock(); */
+
     struct timeval start, end;
     gettimeofday(&start, NULL);
     work();
@@ -61,77 +60,69 @@ int main(int argc, char** argv)
     timeTaken = (end.tv_sec - start.tv_sec) * 1e6;
     timeTaken = (timeTaken + (end.tv_usec - start.tv_usec)) * 1e-6;
     printf("Solve time: %lf sec\n", timeTaken);
-    /* timeend = clock(); */
-    /* printf("Time taken: %8.8gs\n", ((double) (timeend - timestart)) / CLOCKS_PER_SEC); */
-    /* for (uint32_t j = 0; j < 5; ++j) */
-    /* { */
-    /*     for (uint32_t i = 0; i < 5; ++i) */
-    /*     { */
-    /*         printf("%8.8g\t", mat[j][i]); */
-    /*     } */
-    /*     printf("\n"); */
-    /* } */
-    /* printf("===="); */
-    /* for (uint32_t i = 0; i < 5; ++i) */
-    /* { */
-    /*     printf("%8.8g\t", b[i]); */
-    /* } */
-    /* printf("\n"); */
     if (PRINT == 1)
         Print_Matrix();
     return 0;
+}
+
+void Elimination(uint32_t rowc)
+{
+    uint32_t recentlyNormz = startLine - 1;
+    // From seq:
+    // i = rowc
+    // k = recentlyNormz
+    for (uint32_t j = recentlyNormz; j < MAT_SIZE; ++j)
+        mat[rowc][j] -= mat[rowc][recentlyNormz] * mat[recentlyNormz][j];
+    b[rowc] -= mat[rowc][recentlyNormz] * y[recentlyNormz];
+    mat[rowc][recentlyNormz] = 0.0;
+}
+void Normalize(uint32_t rowc)
+{
+    double normzinverse = 1 / mat[rowc][rowc];
+    for (uint32_t i = rowc + 1; i < MAT_SIZE; ++i)
+        mat[rowc][i] *= normzinverse;
+    y[rowc]         = b[rowc] * normzinverse;
+    mat[rowc][rowc] = 1.0;
 }
 
 typedef struct ptargs
 {
     uint16_t tid;
 } ptargs_s;
-void GaussianElimination(uint32_t rowc)
-{
-    pthread_mutex_lock(&colLock);
-    while (colWork[rowc] < rowc)
-        pthread_cond_wait(&colCond, &colLock);
-    pthread_mutex_unlock(&colLock);
-
-    // Normalise
-    double normzinverse = 1 / mat[rowc][rowc];
-    for (uint32_t j = rowc + 1; j < MAT_SIZE; ++j)
-        mat[rowc][j] *= normzinverse;
-    y[rowc]         = b[rowc] * normzinverse;
-    mat[rowc][rowc] = 1.0;
-
-    // Eliminate (rain)
-    for (uint32_t i = rowc + 1; i < MAT_SIZE; ++i)
-    {
-        // Wait until past threads are all done with line
-        pthread_mutex_lock(&colLock);
-        while (colWork[i] < rowc)
-            pthread_cond_wait(&colCond, &colLock);
-        pthread_mutex_unlock(&colLock);
-
-
-        for (uint32_t j = rowc + 1; j < MAT_SIZE; ++j)
-            mat[i][j] -= mat[i][rowc] * mat[rowc][j];
-        b[i] -= mat[i][rowc] * y[rowc];
-        mat[i][rowc] = 0.0;
-
-        pthread_mutex_lock(&colLock);
-        colWork[i]++;
-        pthread_cond_broadcast(&colCond);
-        pthread_mutex_unlock(&colLock);
-    }
-}
 void* ThreadWork(void* input)
 {
-    ptargs_s args  = *(ptargs_s*) input;
-    int32_t  jobid = args.tid;
-    while (jobid < MAT_SIZE)
+    ptargs_s args = *(ptargs_s*) input;
+    uint32_t line = 0;
+
+    pthread_barrier_wait(&comBarrier);
+    pthread_barrier_wait(&comBarrier);
+
+    while (currentLine < MAT_SIZE)
     {
-        GaussianElimination(jobid);
-        // Get new job
-        pthread_mutex_lock(&workLock);
-        jobid = workCounter++;
-        pthread_mutex_unlock(&workLock);
+        // Let everyone compare before moving on
+        pthread_barrier_wait(&threadBarrier);
+
+        // Get init line
+        pthread_mutex_lock(&lock);
+        line = currentLine;
+        currentLine += LINES_PER_THREAD;
+        pthread_mutex_unlock(&lock);
+
+        // Work on lines
+        while (line < MAT_SIZE)
+        {
+            uint32_t stop = line + LINES_PER_THREAD;
+            for (; line < MAT_SIZE && line < stop; ++line)
+                Elimination(line);
+
+            // Get new job
+            pthread_mutex_lock(&lock);
+            line = currentLine;
+            currentLine += LINES_PER_THREAD;
+            pthread_mutex_unlock(&lock);
+        }
+        pthread_barrier_wait(&comBarrier);  // Await all threads
+        pthread_barrier_wait(&comBarrier);  // Currentline is updated
     }
 
     // Signal work is done to main thread
@@ -144,7 +135,10 @@ void work(void)
     // Init
     pthread_t tpool[THREAD_COUNT];
     ptargs_s  targs[THREAD_COUNT];
+    startLine   = 0;
+    currentLine = 0;
 
+    // Sig init
     siginfo_t data;
     sigset_t  sig;
     sigemptyset(&sig);
@@ -152,12 +146,10 @@ void work(void)
     // Has to be blocking for sigwait to work
     pthread_sigmask(SIG_BLOCK, &sig, NULL);
 
-    workCounter = THREAD_COUNT;
-    memset(colWork, COL_WIP, MAT_SIZE);
-    pthread_cond_init(&colCond, NULL);
-    pthread_mutex_init(&colLock, NULL);
-    pthread_mutex_init(&workLock, NULL);
-
+    // Mutex init
+    pthread_barrier_init(&comBarrier, NULL, THREAD_COUNT + 1);
+    pthread_barrier_init(&threadBarrier, NULL, THREAD_COUNT);
+    pthread_mutex_init(&lock, NULL);
 
     // Create thread pool
     for (uint16_t i = 0; i < THREAD_COUNT; ++i)
@@ -165,12 +157,27 @@ void work(void)
         targs[i].tid = i;
         pthread_create(&tpool[i], NULL, ThreadWork, &targs[i]);
     }
+
+    // Normalize until last line is done
+    while (startLine < MAT_SIZE)
+    {
+        pthread_barrier_wait(&comBarrier);  // Work done
+        Normalize(startLine);
+        currentLine = ++startLine;
+        pthread_barrier_wait(&comBarrier);  // Updated currentLine
+    }
+
     // Collect threads
     for (uint16_t i = 0; i < THREAD_COUNT; ++i)
     {
         sigwaitinfo(&sig, &data);
         pthread_join(tpool[data.si_int], NULL);
     }
+
+    // Cleanup
+    pthread_barrier_destroy(&comBarrier);
+    pthread_barrier_destroy(&threadBarrier);
+    pthread_mutex_destroy(&lock);
 }
 
 void Init_Matrix()
