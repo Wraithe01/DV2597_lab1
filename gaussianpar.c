@@ -1,6 +1,8 @@
 #include <bits/types/siginfo_t.h>
 #include <bits/types/sigset_t.h>
+#include <math.h>
 #include <stdatomic.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -60,6 +62,39 @@ int main(int argc, char** argv)
     timeTaken = (end.tv_sec - start.tv_sec) * 1e6;
     timeTaken = (timeTaken + (end.tv_usec - start.tv_usec)) * 1e-6;
     printf("Solve time: %lf sec\n", timeTaken);
+
+
+    FILE* seqA = fopen("seqA.txt", "r");
+    FILE* seqB = fopen("seqB.txt", "r");
+    FILE* seqY = fopen("seqY.txt", "r");
+    for (unsigned int i = 0; i < MAT_SIZE; ++i)
+    {
+        char*  buf      = malloc(256);
+        size_t buffsize = 256;
+
+        getline(&buf, &buffsize, seqB);
+        if (fabs(atof(buf) - b[i]) > 0.001f)
+            printf("[b] Error on line %d. Was %f, should be %s\n", i + 1, b[i], buf);
+
+        getline(&buf, &buffsize, seqY);
+        if (fabs(atof(buf) - y[i]) > 0.001f)
+            printf("[y] Error on line %d. Was %f, should be %s\n", i + 1, y[i], buf);
+
+        for (unsigned int j = 0; j < MAT_SIZE; ++j)
+        {
+            getline(&buf, &buffsize, seqA);
+            if (fabs(atof(buf) - mat[i][j]) > 0.0001f)
+                printf("[A] Error on line %d. Was %f, should be %s\n",
+                       (j + 1) + i * MAT_SIZE,
+                       mat[i][j],
+                       buf);
+        }
+    }
+    printf("[+] Finished comparing seq and par.\n");
+    fclose(seqA);
+    fclose(seqB);
+    fclose(seqY);
+
     if (PRINT == 1)
         Print_Matrix();
     return 0;
@@ -71,7 +106,7 @@ void Elimination(uint32_t rowc)
     // From seq:
     // i = rowc
     // k = recentlyNormz
-    for (uint32_t j = recentlyNormz; j < MAT_SIZE; ++j)
+    for (uint32_t j = recentlyNormz + 1; j < MAT_SIZE; ++j)
         mat[rowc][j] -= mat[rowc][recentlyNormz] * mat[recentlyNormz][j];
     b[rowc] -= mat[rowc][recentlyNormz] * y[recentlyNormz];
     mat[rowc][recentlyNormz] = 0.0;

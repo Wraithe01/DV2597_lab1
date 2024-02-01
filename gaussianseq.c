@@ -5,6 +5,8 @@
  ***************************************************************************/
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/time.h>
 
 #define MAX_SIZE 2048
@@ -42,11 +44,33 @@ int main(int argc, char** argv)
     timeTaken = (end.tv_sec - start.tv_sec) * 1e6;
     timeTaken = (timeTaken + (end.tv_usec - start.tv_usec)) * 1e-6;
     printf("Solve time: %lf sec\n", timeTaken);
-    // for (int i = 0; i < 12; ++i)
-    // {
-    //     printf("%8.8g ", b[i]);
-    // }
-    // printf("\n");
+
+
+    FILE* seqA = fopen("seqA.txt", "w");
+    FILE* seqB = fopen("seqB.txt", "w");
+    FILE* seqY = fopen("seqY.txt", "w");
+    for (unsigned int i = 0; i < MAX_SIZE; ++i)
+    {
+        char buf[256] = { '\0' };
+        int  size     = -1;
+
+        size = snprintf(buf, 256, "%f\n", b[i]);
+        fwrite(buf, sizeof(*buf), size, seqB);
+
+        size = snprintf(buf, 256, "%f\n", y[i]);
+        fwrite(buf, sizeof(*buf), size, seqY);
+
+        for (unsigned int j = 0; j < MAX_SIZE; ++j)
+        {
+            size = snprintf(buf, 256, "%f\n", A[i][j]);
+            fwrite(buf, sizeof(*buf), size, seqA);
+        }
+    }
+    fclose(seqA);
+    fclose(seqB);
+    fclose(seqY);
+
+
     if (PRINT == 1)
         Print_Matrix();
 }
